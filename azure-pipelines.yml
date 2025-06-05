@@ -1,0 +1,62 @@
+trigger:
+- main
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  model_artifact_path: 'outputs/model.pkl'
+
+stages:
+- stage: CI
+  displayName: 'Continuous Integration'
+  jobs:
+  - job: BuildAndTrain
+    displayName: 'Preprocess, Train, Evaluate, Register Model'
+    steps:
+    - task: UsePythonVersion@0
+      inputs:
+        versionSpec: '3.8'
+
+    - script: |
+        python -m pip install --upgrade pip
+        pip install -r ci/requirements_ci.txt
+      displayName: 'Install dependencies'
+
+    - script: |
+        python ci/preprocess.py
+        python ci/train.py
+        python ci/model_eval.py
+        python ci/register_model.py
+      displayName: 'Run CI scripts'
+
+    - task: PublishBuildArtifacts@1
+      inputs:
+        pathToPublish: outputs
+        artifactName: model_artifact
+        publishLocation: 'Container'
+      displayName: 'Publish model artifact'
+
+- stage: CD
+  displayName: 'Continuous Deployment'
+  dependsOn: CI
+  jobs:
+  - job: Deploy
+    displayName: 'Deploy to Endpoint'
+    steps:
+    - task: UsePythonVersion@0
+      inputs:
+        versionSpec: '3.8'
+
+    - script: |
+        python -m pip install --upgrade pip
+        pip install azureml-core
+        pip install -r cd/environment.yml
+      displayName: 'Install CD dependencies'
+
+    - download: current
+      artifact: model_artifact
+
+    - script: |
+        python cd/deploy.py
+      displayName: 'Run deployment script'
